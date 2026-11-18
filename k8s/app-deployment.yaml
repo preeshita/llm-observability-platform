@@ -1,0 +1,56 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-app
+  labels:
+    app: llm-app
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: llm-app
+
+  template:
+    metadata:
+      labels:
+        app: llm-app
+
+    spec:
+      containers:
+        - name: llm-app
+          image: ghcr.io/preeshita/llm-observability-platform:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 8000
+
+          envFrom:
+            - configMapRef:
+                name: llm-app-config
+            - secretRef:
+                name: llm-app-secret
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5

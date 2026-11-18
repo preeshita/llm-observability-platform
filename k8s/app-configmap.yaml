@@ -1,0 +1,9 @@
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-app-config
+data:
+  LANGFUSE_BASE_URL: "https://us.cloud.langfuse.com"
+  PYTHONUNBUFFERED: "1"
+  APP_ENV: "production"

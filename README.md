@@ -1,287 +1,307 @@
-LLM Observability Platform --- Troubleshooting README
+# LLM Observability Platform
 
+A Kubernetes-deployed observability platform for monitoring an AI-style question-answering API. It combines application metrics, distributed tracing, infrastructure monitoring, autoscaling, alerting, and service-level objective (SLO) views in one local development environment.
 
-1. Purpose
-  - Keep a quick reference for project setup, local URLs, common
-    errors, and fixes.
-  - Current implementation uses a mock AI response. It does not
-    call a paid AI API.
-  - Add new issues, questions, commands, and solutions to this
-    document as the project progresses.
-1. Project environment
-- Project folder: D:\PROJECTS\llm-observability-platform
-- Operating system: Windows
-- Shell: PowerShell
-- Python: 3.12.10
-- Virtual environment: .venv
-- Activate the virtual environment (run from the project folder):
-  - .\.venv\Scripts\Activate.ps1
-- Expected terminal prefix: (.venv)
-- Use this command to run tests:
-  - python -m pytest -v
-  - Prefer this over pytest -v in this project because it reliably
-    invokes pytest through the active Python interpreter.
-2. Important local URLs
-- FastAPI home: http://127.0.0.1:8000/
-- FastAPI health check: http://127.0.0.1:8000/health
-- FastAPI Swagger / interactive API docs:
-  http://127.0.0.1:8000/docs
-- FastAPI Prometheus metrics endpoint:
-  http://127.0.0.1:8000/metrics
-- Prometheus UI: http://localhost:9090/
-- Prometheus targets / target health:
-  http://localhost:9090/targets
-- Prometheus query page: http://localhost:9090/graph
-- Note about the Prometheus port: The docker run command used so
-  far maps host port 9090 to container port 9090 (-p 9090:9090).
-  Therefore, use port 9090. If a different host port was configured,
-  use that host port instead.
-3. Start the services
-- Start Docker Desktop
-  - Open Docker Desktop from the Windows Start menu.
-  - Wait until Docker Desktop reports that the engine is running /
-    Docker is ready.
-  - Verify the Docker engine:
-    - docker version
-    - The output should include both Client and Server
-      sections.
-- Start FastAPI
-  - Open PowerShell / VS Code terminal.
-  - Navigate to the project root:
-    - cd D:\PROJECTS\llm-observability-platform
-  - Activate .venv if it is not already active:
-    - .\.venv\Scripts\Activate.ps1
-  - Start the API:
-    - uvicorn main:app --reload
-  - Keep this terminal open while Prometheus is scraping the API.
-- Start Prometheus
-  - Open a second PowerShell terminal.
-  - Navigate to the project root:
-    - cd D:\PROJECTS\llm-observability-platform
-  - Run:
-    - docker run --name prometheus -p 9090:9090 -v "${PWD}/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml" prom/prometheus
-  - Keep this terminal open while running the container in the
-    foreground.
-  - Open http://localhost:9090/targets and confirm the target is
-    UP.
-4. Prometheus configuration for the current setup
-- Current setup
-  - FastAPI runs directly on the Windows host at port 8000.
-  - Prometheus runs inside Docker.
-  - Because FastAPI is not currently a Docker Compose service,
-    Prometheus must reach it through host.docker.internal, not the
-    Docker service name app.
-- File: monitoring/prometheus/prometheus.yml
-- Expected contents:
-global:
-  scrape_interval: 5s
+> **Project status:** Local portfolio project. The API currently returns a mock response; it does not yet call a live LLM provider. Token counts and cost values are estimates derived from text length, not provider-reported usage or actual billing.
 
-scrape_configs:
-  - job_name: "llm-observability"
-    metrics_path: "/metrics"
-    static_configs:
-      - targets: ["host.docker.internal:8000"]
-- Important hostname differences
-  - host.docker.internal:8000 --- use this now: Prometheus is in
-    Docker and FastAPI runs on Windows.
-  - app:8000 --- use this later when FastAPI and Prometheus run as
-    services on the same Docker Compose network.
-  - localhost:8000 --- from inside the Prometheus container, this
-    refers to the Prometheus container itself, not the Windows host.
-5. Restart Prometheus
-- If Prometheus was started with the container name prometheus:
-  - Stop it:
-    - docker stop prometheus
-  - Remove the stopped container:
-    - docker rm prometheus
-  - Make sure the terminal is at the project root:
-    - cd D:\PROJECTS\llm-observability-platform
-  - Start it again with the current configuration:
-    - docker run --name prometheus -p 9090:9090 -v "${PWD}/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml" prom/prometheus
-- Check whether the container is running:
-  - docker ps
-- View Prometheus logs:
-  - docker logs prometheus
-- If the container already exists and you only need to restart it
-  without changing its configuration:
-  - docker restart prometheus
-- If prometheus.yml has changed:
-  - Restarting an existing container may not reload the file
-    automatically.
-  - For the simplest reliable reset with the current command, use
-    docker stop prometheus, docker rm prometheus, then run the
-    docker run command again.
-- If Docker reports that the name /prometheus is already in use:
-  - Check containers:
-    - docker ps -a
-  - Stop and remove the old Prometheus container if appropriate:
-    - docker stop prometheus
-    - docker rm prometheus
-  - Run the start command again.
-6. Issues encountered and solutions
-- Issue 1 --- pytest -v fails with
-  ModuleNotFoundError: No module named 'main'
-  - When it happened: Pytest collection failed while importing
-    from main import app in tests/test_main.py.
-  - Cause / diagnosis: The direct pytest launcher did not
-    resolve the project module correctly in that invocation.
-  - Solution: Run pytest as a Python module from the project
-    root:
-    - cd D:\PROJECTS\llm-observability-platform
-    - python -m pytest -v
-  - Verified result: 6 passed.
-  - Useful check:
-    python -c "import main; print(main.__file__)" should print the
-    project's main.py path.
-  - Environment check commands:
-    - where.exe python
-    - where.exe pytest
-    - python --version
-    - python -m pytest --version
-- Issue 2 --- Uvicorn error: Could not import module "main"
-  - When it happened: Uvicorn was started from
-    D:\PROJECTS\llm-observability-platform\monitoring\prometheus.
-  - Cause: The terminal's current working directory was a
-    subfolder. The project's main.py is in the project root.
-  - Solution:
-    - cd D:\PROJECTS\llm-observability-platform
-    - uvicorn main:app --reload
-  - Rule: Start uvicorn main:app --reload from the project
-    root, where main.py is located.
-- Issue 3 --- Docker error: cannot connect to
-  npipe:////./pipe/docker_engine
-  - Error example:
-    failed to connect to the docker API ... The system cannot find the file specified.
-  - Cause: Docker Desktop / Docker Engine was not running or had
-    not finished starting.
-  - Solution:
-    - Open Docker Desktop.
-    - Wait until the engine is running / Docker is ready.
-    - Run docker version.
-    - Confirm that both Client and Server information are
-      displayed.
-    - Retry the Prometheus docker run command.
-  - Keep Docker Desktop running while using Docker containers.
-- Issue 4 --- Prometheus target error:
-  lookup app ... no such host
-  - Error example:
-    Error scraping target: Get "http://app:8000/metrics": dial tcp: lookup app ... no such host
-  - Cause: Prometheus was configured to scrape app:8000, but
-    FastAPI was running directly on Windows, not as a Docker service
-    named app.
-  - Solution for the current setup:
-    - Edit monitoring/prometheus/prometheus.yml.
-    - Set the target to host.docker.internal:8000.
-    - Save the file.
-    - Recreate the Prometheus container using the restart
-      instructions in Section 5.
-    - Open http://localhost:9090/targets.
-    - Confirm that the llm-observability target shows UP.
-  - Future change: When the project moves to Docker Compose and
-    FastAPI is a service named app on the same Docker network as
-    Prometheus, change the target to app:8000.
-7. Stage 2 --- Automated test reference
-- Test file: tests/test_main.py
-- Run all tests:
-  - python -m pytest -v
-- Last verified result:
-  - 6 passed in 1.40s
-- Tests that passed:
-  - test_home
-  - test_health
-  - test_ask_success
-  - test_ask_empty_question
-  - test_ask_missing_question
-  - test_metrics_endpoint
-8. Stage 3 --- Prometheus verification
-- Before checking Prometheus:
-  - Docker Desktop / Docker Engine is running.
-  - FastAPI is running from the project root on port 8000.
-  - Prometheus container is running.
-  - monitoring/prometheus/prometheus.yml uses
-    host.docker.internal:8000 for the current host-run API setup.
-- Check target health:
-  - Open http://localhost:9090/targets.
-  - The llm-observability target should show UP.
-- Check metrics directly:
-  - Open http://127.0.0.1:8000/metrics.
-  - Look for metric families such as:
-    - llm_requests_total
-    - llm_request_latency_seconds
-    - llm_tokens_total
-    - llm_errors_total
-- Generate sample traffic:
-  - Open http://127.0.0.1:8000/docs.
-  - Use POST /ask with a JSON body such as:
-    - {"question": "What is Kubernetes?"}
-  - Refresh the Prometheus query page / run a query after the scrape
-    interval.
-9. Git and secrets reminders
-- Keep .env private.
-  - .env is ignored by .gitignore; never commit API keys or
-    secrets.
-  - Never paste API keys into chat, screenshots, logs, or source
-    files.
-- Keep generated/local folders out of Git:
-  - .venv/
-  - __pycache__/
-  - .pytest_cache/
-- Check Git status before committing:
-  - git status --short
-  - .env and .venv should not appear as untracked files.
-- Current known Git status at the last check:
-  - .gitignore and main.py were untracked and ready to be added
-    when appropriate.
-10. Running project checklist
-- [ ] Docker Desktop is open and Docker Engine is running.
-- [ ] PowerShell is at D:\PROJECTS\llm-observability-platform.
-- [ ] .venv is active.
-- [ ] FastAPI is running with uvicorn main:app --reload.
-- [ ] FastAPI /docs opens.
-- [ ] FastAPI /metrics opens.
-- [ ] Prometheus container is running (docker ps).
-- [ ] Prometheus target is UP at http://localhost:9090/targets.
-- [ ] Tests pass with python -m pytest -v.
-11. Update log
-- Stage 1 --- FastAPI mock API and Prometheus metrics
-  - Implemented mock /ask endpoint.
-  - Added request count, latency, token, and error metrics.
-- Stage 2 --- Pytest
-  - Added and ran six tests.
-  - All six tests passed using python -m pytest -v.
-- Stage 3 --- Prometheus
-  - Started Docker Desktop and Prometheus container.
-  - Corrected scrape target for the current setup to
-    host.docker.internal:8000.
-  - Next verification: Confirm target health is UP at
-    /targets.
-- Future updates
-  - Add each new issue, exact error message, root cause, fix, useful
-    command, and relevant local URL to the matching section.
-  - Update the running checklist and update log as each project
-    stage is completed.
+## Why this project?
 
+AI-backed services can fail in ways that are difficult to diagnose from application logs alone. A service may respond slowly, return errors, consume more resources than expected, restart repeatedly, or become overloaded as traffic increases.
 
-    ---MY WORK
+This project demonstrates how to build an observability workflow around an API:
 
-    USEFUL DOCKER COMMANDS 
+- Measure request volume, throughput, errors, and latency.
+- Track estimated input/output token usage and estimated cost.
+- Capture request traces with Langfuse instrumentation.
+- Discover Kubernetes application Pods dynamically.
+- Monitor Pod health, restarts, Deployment replicas, HPA behavior, CPU, and memory.
+- Visualize application and infrastructure signals in Grafana.
+- Evaluate example availability and latency SLOs.
+- Trigger Prometheus alerts and route notifications through Alertmanager to a local webhook receiver.
+- Exercise the service with Locust and observe how Kubernetes responds.
 
-docker ps
-docker ps -a
-docker compose logs -f app
-docker compose logs -f prometheus
-docker compose logs -f grafana
-docker compose restart
-docker compose down
-docker compose up -d
+## Architecture
 
+```mermaid
+flowchart TB
+    U[Client / Locust] -->|HTTP request| S[Kubernetes NodePort Service :30080]
+    S --> A[FastAPI application Pods]
+    A -->|Application metrics :8000/metrics| P[Prometheus :30090]
+    A -->|Trace instrumentation| L[Langfuse Cloud]
+    P -->|PromQL queries| G[Grafana :3000]
+    P -->|Alert rules| AM[Alertmanager :30093]
+    AM -->|Webhook POST| W[Local alert receiver :5001]
+    K[Kubernetes API] -->|Pod discovery and cluster state| P
+    KS[kube-state-metrics] -->|Kubernetes object metrics| P
+    MS[Metrics Server] -->|Resource metrics for HPA / kubectl top| K
+    H[Horizontal Pod Autoscaler] -->|Scale Deployment| A
+```
 
+### Request and monitoring flow
 
-API: http://127.0.0.1:8000
-documentation: http://127.0.0.1:8000/docs
-Health: http://127.0.0.1:8000/health
-Metrics: http://127.0.0.1:8000/metrics
-promethues: http://localhost:9090
-promethus target: http://localhost:9090/targets
-grafana: http://localhost:3000
-http://us.cloud.langfuse.com/project/cmw43o8e40404ad0elc3efaoy/traces
+1. A client or Locust sends an HTTP request to the Kubernetes NodePort Service.
+2. Kubernetes forwards the request to one of the FastAPI application Pods.
+3. FastAPI processes the request and updates Prometheus counters and latency histograms.
+4. Prometheus discovers eligible application Pods and scrapes their `/metrics` endpoints.
+5. Grafana queries Prometheus using PromQL and renders dashboards.
+6. Prometheus evaluates alert rules. Firing alerts are sent to Alertmanager.
+7. Alertmanager groups and routes notifications to the in-cluster webhook receiver.
+8. Kubernetes monitoring metrics and resource metrics provide context about Pod health, scaling, CPU, and memory.
+9. Langfuse receives instrumented traces. The current response generation remains mocked.
+
+## Technology stack
+
+| Technology | Role in this project |
+|---|---|
+| Python 3.12 | Application and test runtime |
+| FastAPI | HTTP API and interactive API documentation |
+| Prometheus client | Exposes application metrics |
+| Prometheus | Scrapes metrics, stores time series, evaluates alert rules, and serves PromQL |
+| Grafana | Dashboards and visual analysis |
+| Langfuse SDK | LLM-style request tracing/instrumentation |
+| Docker | Packages the API into a container image |
+| Docker Compose | Runs the initial local container-based stack |
+| Kubernetes (Docker Desktop) | Runs and manages the application and monitoring components locally |
+| kube-state-metrics | Exposes Kubernetes object-state metrics |
+| Metrics Server | Supplies resource metrics used by `kubectl top` and HPA |
+| Alertmanager | Groups and routes Prometheus alert notifications |
+| Python standard-library HTTP server | Receives Alertmanager webhook notifications |
+| Locust | Generates load against the API |
+| Pytest | Runs automated application tests |
+| Git and GitHub | Source control and repository hosting |
+| GitHub Actions | Runs CI checks |
+| GitHub Container Registry (GHCR) | Stores the built container image |
+
+## Dashboards
+
+The project includes four Grafana dashboards. Add your actual Grafana screenshots to `docs/images/` using the filenames below. The image references are ready; the screenshots are not fabricated or embedded in this repository automatically.
+
+### 1. LLM Observability Dashboard
+
+![LLM Observability Dashboard](docs/images/llm-observability-dashboard.png)
+
+Shows application-level API behavior, including total requests, request throughput, errors, average latency, P95 latency, and estimated input/output token rates.
+
+**Why it helps:** Quickly answers whether the API is receiving traffic, how quickly it responds, whether errors are occurring, and how request behavior changes under load.
+
+### 2. Kubernetes Observability Dashboard
+
+![Kubernetes Observability Dashboard](docs/images/kubernetes-observability-dashboard.png)
+
+Shows running, pending, and failed Pods; Pod restart activity; desired and available Deployment replicas; and HPA current and desired replica counts.
+
+**Why it helps:** Helps identify unhealthy Pods, failed rollouts, restart loops, replica shortages, and autoscaling behavior.
+
+### 3. Kubernetes Resource Monitoring Dashboard
+
+![Kubernetes Resource Monitoring Dashboard](docs/images/kubernetes-resource-monitoring-dashboard.png)
+
+Shows total application CPU usage, total application memory working set, CPU usage per Pod, and memory usage per Pod.
+
+**Why it helps:** Helps investigate resource consumption, compare Pods, identify unusually high CPU or memory use, and understand whether resource limits or scaling settings may need attention.
+
+### 4. LLM Service Level Objectives (SLO) Dashboard
+
+![LLM Service Level Objectives Dashboard](docs/images/llm-slo-dashboard.png)
+
+Tracks example rolling seven-day service indicators, including availability, requests completed within one second, estimated availability error-budget remaining, total requests, P95 latency, and successful versus failed requests.
+
+**Why it helps:** Turns raw telemetry into service-level indicators that can be compared with explicit targets. The current demonstration targets are 99% availability and 95% of requests within one second; they are portfolio-demo targets, not contractual production SLAs.
+
+> **SLO data note:** The Kubernetes Prometheus instance has only collected data since it was deployed. A seven-day dashboard range does not create seven days of historical data. The displayed values are based on samples actually available during the selected period. The one-second latency panel also requires a matching histogram bucket boundary; verify the actual `le` label in Prometheus before treating that panel as validated.
+
+## Alerting
+
+Prometheus evaluates these example alert rules:
+
+| Alert | Condition (high-level) | Purpose |
+|---|---|---|
+| `HighAPIErrorRate` | Error ratio exceeds 5% over the configured evaluation window, with a minimum request volume | Detects elevated API failures |
+| `HighAPILatency` | P95 latency exceeds 1 second for the configured duration | Detects slow API responses |
+| `ApplicationPodRestart` | Application container restart activity is detected | Flags container instability |
+| `ApplicationReplicasUnavailable` | Available Deployment replicas remain below desired replicas | Detects reduced service capacity |
+| `HighApplicationCPU` | Application CPU usage exceeds the configured threshold | Flags high CPU consumption |
+| `HighApplicationMemory` | Application memory working set exceeds the configured threshold | Flags high memory consumption |
+
+Firing alerts are routed through Alertmanager to a local webhook receiver. The receiver logs the notification payload. This demonstrates the alert delivery path; it is not currently connected to email, Slack, PagerDuty, or another external incident-management service.
+
+## API and local endpoints
+
+The project is configured for local development on Docker Desktop.
+
+| Component | URL | Purpose |
+|---|---|---|
+| FastAPI application | `http://localhost:30080` | Kubernetes NodePort entry point |
+| Health endpoint | `http://localhost:30080/health` | Application health check |
+| Metrics endpoint | `http://localhost:30080/metrics` | Prometheus metrics exposition |
+| Swagger / OpenAPI docs | `http://localhost:30080/docs` | Interactive API documentation |
+| ReDoc | `http://localhost:30080/redoc` | Alternative API documentation |
+| Kubernetes Prometheus | `http://localhost:30090` | Prometheus UI and query interface |
+| Prometheus targets | `http://localhost:30090/targets` | Scrape target health |
+| Prometheus rules API | `http://localhost:30090/api/v1/rules` | Loaded alert rules |
+| Prometheus alerts API | `http://localhost:30090/api/v1/alerts` | Current alert state |
+| Alertmanager | `http://localhost:30093` | Alert grouping and routing UI |
+| Grafana | `http://localhost:3000` | Dashboards |
+| Locust | `http://localhost:8089` | Load-test UI |
+| Docker Compose Prometheus | `http://localhost:9090` | Original Docker-based Prometheus instance |
+
+Grafana data sources used in the project:
+
+- `Kubernetes-Prometheus`: `http://host.docker.internal:30090`
+- Docker Compose Prometheus: `http://prometheus:9090` when Grafana runs in the Compose network.
+
+Langfuse Cloud project: `https://us.cloud.langfuse.com/project` (requires the configured account and credentials).
+
+## Running the project locally
+
+### Prerequisites
+
+- Windows with Docker Desktop and its Kubernetes cluster enabled, or an appropriately configured local Kubernetes environment.
+- Python 3.12.
+- Git.
+- `kubectl`.
+- A GitHub account if you want to build and publish the image through the included CI workflow.
+- Langfuse credentials only if you want to enable trace export.
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/preeshita/llm-observability-platform.git
+cd llm-observability-platform
+```
+
+### 2. Create a Python environment and install dependencies
+
+PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Configure local environment variables
+
+Create a local `.env` file using the variable names expected by the application and Langfuse integration. Obtain your own credentials from the relevant provider. Never commit `.env` or Kubernetes Secret manifests containing credentials.
+
+### 4. Run tests
+
+```powershell
+python -m pytest -v
+```
+
+### 5. Run with Docker Compose (if using the Compose setup)
+
+```powershell
+docker compose up --build -d
+docker compose ps
+```
+
+Use `docker compose logs -f` to inspect service logs. The Compose setup is the initial container-based development environment; the Kubernetes NodePort URLs in this document refer to the Kubernetes deployment.
+
+### 6. Deploy to Kubernetes
+
+The Kubernetes manifests are under `k8s/`. Review image references and local secret configuration before applying them. Apply the ConfigMap, Secret, application Deployment, Service, HPA, and monitoring manifests in the order described in the project setup notes.
+
+Useful checks:
+
+```powershell
+kubectl get pods -A
+kubectl get pods -n default
+kubectl get svc -A
+kubectl get hpa -n default
+kubectl top pods -n default
+```
+
+Do not commit secret manifests or real credentials. Use your own locally generated Kubernetes Secret.
+
+## Example Prometheus metrics
+
+The application exposes metrics such as:
+
+- `llm_requests_total` — request counter labelled by status.
+- `llm_request_latency_seconds` — request latency histogram, exposed as `_bucket`, `_sum`, and `_count` time series.
+- `llm_tokens_total` — estimated token counter labelled by token type.
+- `llm_errors_total` — application error counter.
+
+Kubernetes monitoring includes kube-state-metrics series such as `kube_pod_status_phase`, `kube_pod_container_status_restarts_total`, Deployment replica metrics, and HPA status metrics. Resource monitoring uses container CPU and memory series exposed through the Kubernetes resource metrics endpoint.
+
+## Repository layout
+
+```text
+llm-observability-platform/
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── k8s/
+│   ├── monitoring/
+│   ├── app-configmap.yaml
+│   ├── app-deployment.yaml
+│   ├── app-service.yaml
+│   └── app-hpa.yaml
+├── monitoring/
+│   └── prometheus/
+│       ├── prometheus.yml
+│       └── alert-rules.yml
+├── tests/
+├── .dockerignore
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── locustfile.py
+├── main.py
+└── requirements.txt
+```
+
+The local Kubernetes Secret manifest (`k8s/app-secret.yaml`) and `.env` file are intentionally excluded from source control.
+
+## Current limitations and future improvements
+
+This repository demonstrates an end-to-end local observability design. It is not yet a production-ready managed platform.
+
+- **Mock generation:** The API currently returns a mock answer; connect a real LLM provider for actual inference.
+- **Estimated token and cost values:** Current estimates are based on text length. Replace them with provider-reported usage and current model pricing.
+- **Trace validation:** Langfuse instrumentation is present, but trace content and completeness should be revalidated when real model calls are integrated.
+- **Local Kubernetes:** The cluster runs on Docker Desktop, not a production-managed Kubernetes service.
+- **Alert notifications:** Alertmanager currently delivers to a local webhook receiver that logs payloads; external notification channels are future work.
+- **Alertmanager persistence:** Its current single-replica setup uses ephemeral storage; state is not preserved through Pod recreation.
+- **Metrics Server TLS:** The local Docker Desktop configuration uses `--kubelet-insecure-tls` to make local metrics collection work. This is not an appropriate production security setting.
+- **SLO history:** The rolling seven-day views need sufficient retained Prometheus history before they represent a full seven-day window.
+- **SLO bucket verification:** The one-second latency SLI must use a histogram bucket boundary that actually exists in the application's exported metrics.
+
+Potential next steps include real provider integration, accurate token/cost accounting, durable monitoring storage, external alert routing, dashboards-as-code, production-grade authentication and secrets management, and deployment to a managed Kubernetes cluster.
+
+## What this project demonstrates
+
+- Instrumenting an API with application metrics and traces.
+- Building Prometheus scrape and Kubernetes service-discovery configuration.
+- Writing PromQL queries and alert rules.
+- Creating Grafana dashboards for application, cluster, resource, and SLO visibility.
+- Deploying and scaling a containerized service with Kubernetes.
+- Monitoring autoscaling and recovery behavior.
+- Routing alert notifications with Alertmanager and a webhook receiver.
+- Testing API behavior with Pytest and Locust.
+- Automating checks and image publishing with GitHub Actions.
+
+## Screenshots: how to add them
+
+Create the folder `docs/images/` and save screenshots of the four actual Grafana dashboards using these exact names:
+
+```text
+docs/images/llm-observability-dashboard.png
+docs/images/kubernetes-observability-dashboard.png
+docs/images/kubernetes-resource-monitoring-dashboard.png
+docs/images/llm-slo-dashboard.png
+```
+
+Capture each dashboard in Grafana with a readable time range and no open edit panels. Then commit the image files along with this README. The image links above will render automatically on GitHub once those files exist.
+
+---
+
+## Author
+
+**Preeshita**
+GitHub: [@preeshita](https://github.com/preeshita)
+
+This project was developed as a hands-on portfolio project to explore application observability, Kubernetes operations, and monitoring for AI-style services.

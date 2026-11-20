@@ -1,0 +1,77 @@
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+
+    rule_files:
+      - /etc/prometheus/alert-rules/alert-rules.yml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - alertmanager.monitoring.svc.cluster.local:9093
+    scrape_configs:
+
+      # Automatically discover LLM application Pods
+      - job_name: "llm-kubernetes-pods"
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - default
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: llm-app
+
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: keep
+            regex: Running
+
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: "8000"
+
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+
+      # Scrape kube-state-metrics
+      - job_name: "kube-state-metrics"
+        static_configs:
+          - targets:
+              - "kube-state-metrics.kube-system.svc.cluster.local:8080"
+
+      # Monitor Prometheus itself
+      - job_name: "prometheus"
+        static_configs:
+          - targets:
+              - "localhost:9090"
+
+      # Collect Kubernetes container CPU and memory metrics
+      - job_name: "kubernetes-resource-metrics"
+        metrics_path: /api/v1/nodes/docker-desktop/proxy/metrics/resource
+
+        static_configs:
+          - targets:
+              - "kubernetes.default.svc:443"
+
+        scheme: https
+
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt

@@ -1,8 +1,13 @@
-
 import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from langfuse import observe
+from llm_providers import (
+    LLMProviderError,
+    LLMProviderTimeout,
+    LLMResult,
+    get_provider,
+)
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -25,10 +30,15 @@ REQUEST_COUNT = Counter(
     "Total number of LLM API requests",
     ["status"]
 )
+LATENCY_BUCKETS = (
+    0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0,
+    2.5, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 45.0, 60.0, 90.0, 120.0
+)
 
 REQUEST_LATENCY = Histogram(
     "llm_request_latency_seconds",
-    "Time taken to process LLM requests"
+    "Time taken to process LLM requests",
+    buckets=LATENCY_BUCKETS
 )
 
 TOKEN_COUNT = Counter(
@@ -59,60 +69,68 @@ def health():
     return {"status": "healthy"}
 
 
-@observe(name="mock-llm-response", as_type="generation")
-def generate_mock_response(question: str):
-    time.sleep(0.1)
+# The LLM provider is chosen once at startup from the LLM_PROVIDER
+# environment variable ("mock" by default, or "ollama").
+provider = get_provider()
 
-    answer = f"This is a mock AI response to: {question}"
 
-    return {
-        "answer": answer,
-        "input_tokens": max(1, len(question) // 4),
-        "output_tokens": max(1, len(answer) // 4)
-    }
+@observe(name="llm-response", as_type="generation")
+def generate_llm_response(question: str) -> LLMResult:
+    return provider.generate(question)
+
 
 @app.post("/ask")
 def ask(payload: Question):
     start_time = time.perf_counter()
 
     try:
-        # Generate mock response and capture it in Langfuse
-        result = generate_mock_response(payload.question)
+        # Generate the response and capture it in Langfuse
+        result = generate_llm_response(payload.question)
 
-        answer = result["answer"]
-        input_tokens = result["input_tokens"]
-        output_tokens = result["output_tokens"]
+    except LLMProviderTimeout:
+        REQUEST_COUNT.labels(status="error").inc()
+        ERROR_COUNT.inc()
+        raise HTTPException(
+            status_code=504,
+            detail="LLM provider timed out"
+        )
 
-        latency = time.perf_counter() - start_time
-
-        REQUEST_COUNT.labels(status="success").inc()
-        REQUEST_LATENCY.observe(latency)
-
-        TOKEN_COUNT.labels(token_type="input").inc(input_tokens)
-        TOKEN_COUNT.labels(token_type="output").inc(output_tokens)
-
-        return {
-            "answer": answer,
-            "model": "mock-model",
-            "latency_ms": round(latency * 1000, 2),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": input_tokens + output_tokens
-        }
+    except LLMProviderError:
+        REQUEST_COUNT.labels(status="error").inc()
+        ERROR_COUNT.inc()
+        raise HTTPException(
+            status_code=502,
+            detail="LLM provider request failed"
+        )
 
     except Exception:
         REQUEST_COUNT.labels(status="error").inc()
         ERROR_COUNT.inc()
-
         raise HTTPException(
             status_code=500,
             detail="Request processing failed"
         )
 
+    latency = time.perf_counter() - start_time
+
+    REQUEST_COUNT.labels(status="success").inc()
+    REQUEST_LATENCY.observe(latency)
+
+    TOKEN_COUNT.labels(token_type="input").inc(result.input_tokens)
+    TOKEN_COUNT.labels(token_type="output").inc(result.output_tokens)
+
+    return {
+        "answer": result.answer,
+        "model": result.model,
+        "provider": result.provider,
+        "latency_ms": round(latency * 1000, 2),
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "total_tokens": result.input_tokens + result.output_tokens,
+        "tokens_estimated": result.tokens_estimated
+    }
+
 
 # Expose Prometheus metrics
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
-
-
-

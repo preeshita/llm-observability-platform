@@ -29,7 +29,7 @@ groups:
           severity: warning
         annotations:
           summary: High API P95 latency
-          description: API P95 latency has exceeded 1 second for 5 minutes.
+          description: API P95 latency has exceeded 60 seconds for 5 minutes (threshold set for CPU-only local LLM inference).
 
       - alert: ApplicationPodRestart
         expr: |

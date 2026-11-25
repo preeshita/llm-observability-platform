@@ -1,43 +1,102 @@
 apiVersion: v1
-data:
-  alert-rules.yml: "\r\ngroups:\r\n  - name: llm-application-alerts\r\n    rules:\r\n
-    \     - alert: HighAPIErrorRate\r\n        expr: |\r\n          (\r\n            sum(rate(llm_requests_total{status=\"error\"}[5m]))\r\n
-    \           /\r\n            clamp_min(sum(rate(llm_requests_total[5m])), 0.000001)\r\n
-    \         ) > 0.05\r\n          and\r\n          sum(increase(llm_requests_total[5m]))
-    > 20\r\n        for: 5m\r\n        labels:\r\n          severity: warning\r\n
-    \       annotations:\r\n          summary: High API error rate\r\n          description:
-    More than 5% of API requests are failing over the last 5 minutes.\r\n\r\n      -
-    alert: HighAPILatency\r\n        expr: |\r\n          histogram_quantile(\r\n
-    \           0.95,\r\n            sum by (le) (rate(llm_request_latency_seconds_bucket[5m]))\r\n
-    \         ) > 1\r\n        for: 5m\r\n        labels:\r\n          severity: warning\r\n
-    \       annotations:\r\n          summary: High API P95 latency\r\n          description:
-    API P95 latency has exceeded 1 second for 5 minutes.\r\n\r\n      - alert: ApplicationPodRestart\r\n
-    \       expr: |\r\n          sum by (namespace, pod) (\r\n            increase(kube_pod_container_status_restarts_total{\r\n
-    \             namespace=\"default\",\r\n              container=\"llm-app\"\r\n
-    \           }[10m])\r\n          ) > 0\r\n        labels:\r\n          severity:
-    warning\r\n        annotations:\r\n          summary: Application Pod restarted\r\n
-    \         description: An application container has restarted within the last
-    10 minutes.\r\n\r\n      - alert: ApplicationReplicasUnavailable\r\n        expr:
-    |\r\n          kube_deployment_spec_replicas{\r\n            namespace=\"default\",\r\n
-    \           deployment=\"llm-app\"\r\n          }\r\n          >\r\n          kube_deployment_status_replicas_available{\r\n
-    \           namespace=\"default\",\r\n            deployment=\"llm-app\"\r\n          }\r\n
-    \       for: 5m\r\n        labels:\r\n          severity: critical\r\n        annotations:\r\n
-    \         summary: Application replicas unavailable\r\n          description:
-    The number of available application replicas is below the desired count.\r\n\r\n
-    \ - name: llm-resource-alerts\r\n    rules:\r\n      - alert: HighApplicationCPU\r\n
-    \       expr: |\r\n          sum by (namespace, pod) (\r\n            rate(container_cpu_usage_seconds_total{\r\n
-    \             namespace=\"default\",\r\n              container=\"llm-app\"\r\n
-    \           }[5m])\r\n          ) > 0.4\r\n        for: 5m\r\n        labels:\r\n
-    \         severity: warning\r\n        annotations:\r\n          summary: High
-    application CPU usage\r\n          description: An application Pod is consuming
-    more than 400 millicores of CPU.\r\n\r\n      - alert: HighApplicationMemory\r\n
-    \       expr: |\r\n          sum by (namespace, pod) (\r\n            container_memory_working_set_bytes{\r\n
-    \             namespace=\"default\",\r\n              container=\"llm-app\"\r\n
-    \           }\r\n          ) > 419430400\r\n        for: 5m\r\n        labels:\r\n
-    \         severity: warning\r\n        annotations:\r\n          summary: High
-    application memory usage\r\n          description: An application Pod is using
-    more than 400 MiB of memory.\r\n"
 kind: ConfigMap
 metadata:
   name: prometheus-alert-rules
   namespace: monitoring
+data:
+  alert-rules.yml: |
+    groups:
+      - name: llm-application-alerts
+        rules:
+          - alert: HighAPIErrorRate
+            expr: |
+              (
+                sum(rate(llm_requests_total{status="error"}[5m]))
+                /
+                clamp_min(sum(rate(llm_requests_total[5m])), 0.000001)
+              ) > 0.05
+              and
+              sum(increase(llm_requests_total[5m])) > 20
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High API error rate
+              description: More than 5% of API requests are failing over the last 5 minutes.
+
+          - alert: HighAPILatency
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (rate(llm_request_latency_seconds_bucket[5m]))
+              ) > 60
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High API P95 latency
+              description: API P95 latency has exceeded 60 seconds for 5 minutes (threshold set for CPU-only local LLM inference).
+
+          - alert: ApplicationPodRestart
+            expr: |
+              sum by (namespace, pod) (
+                increase(kube_pod_container_status_restarts_total{
+                  namespace="default",
+                  container="llm-app"
+                }[10m])
+              ) > 0
+            labels:
+              severity: warning
+            annotations:
+              summary: Application Pod restarted
+              description: An application container has restarted within the last 10 minutes.
+
+          - alert: ApplicationReplicasUnavailable
+            expr: |
+              kube_deployment_spec_replicas{
+                namespace="default",
+                deployment="llm-app"
+              }
+              >
+              kube_deployment_status_replicas_available{
+                namespace="default",
+                deployment="llm-app"
+              }
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: Application replicas unavailable
+              description: The number of available application replicas is below the desired count.
+
+      - name: llm-resource-alerts
+        rules:
+          - alert: HighApplicationCPU
+            expr: |
+              sum by (namespace, pod) (
+                rate(container_cpu_usage_seconds_total{
+                  namespace="default",
+                  container="llm-app"
+                }[5m])
+              ) > 0.4
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High application CPU usage
+              description: An application Pod is consuming more than 400 millicores of CPU.
+
+          - alert: HighApplicationMemory
+            expr: |
+              sum by (namespace, pod) (
+                container_memory_working_set_bytes{
+                  namespace="default",
+                  container="llm-app"
+                }
+              ) > 419430400
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High application memory usage
+              description: An application Pod is using more than 400 MiB of memory.
